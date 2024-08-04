@@ -6,8 +6,11 @@ import time
 import sqlite3
 import requests
 import gmplot
+from mac_vendor_lookup import MacLookup
 
-API_KEY = os.getenv('WIGLE_API_KEY').strip()
+MacLookup().update_vendors()
+WIGLE_API_KEY = open("wigle.api").read().strip()
+GOOGLE_API_KEY = open("google.api").read().strip()
 
 db = sqlite3.connect('signals_1.db')
 cur = db.cursor()
@@ -25,6 +28,14 @@ if os.path.exists('geo-ssid-cache.csv'):
         reader = csv.DictReader(file)
 
         for row in reader:
+            if row['lat'] == '':
+                row['lat'] = None
+            else:
+                row['lat'] = float(row['lat'])
+            if row['lon'] == '':
+                row['lon'] = None
+            else:
+                row['lon'] = float(row['lon'])
             geo_by_ssid[row['ssid']] = row
 
 for ssid in ssid_list:
@@ -39,7 +50,7 @@ for ssid in ssid_list:
         url,
         headers={
             'Accept': 'application/json',
-            'Authorization': f'Basic {API_KEY}',
+            'Authorization': f'Basic {WIGLE_API_KEY}',
         }
     )
 
@@ -102,3 +113,32 @@ with open('geo-ssid-cache.csv', 'wt') as file:
         writer.writerow(row)
 
 print(geo_by_ssid.keys())
+
+colors=[
+    "red",
+    "orange",
+    "yellow",
+    "green",
+    "cornflowerblue",
+    "violet",
+]
+
+gmap = gmplot.GoogleMapPlotter(LAT, LON, 14, apikey=GOOGLE_API_KEY)
+
+for i, loc in enumerate(geo_by_ssid.values()):
+    if loc['lat'] is None:
+        continue
+    results = cur.execute("SELECT DISTINCT MAC FROM SIGNALS_CLEAN WHERE SSID = ?", (loc['ssid'],))
+    mac_list = [ result[0] for result in results ]
+    html= '<h3>' + loc['ssid'] + '</h3>'
+    for mac in mac_list:
+        vendor = 'randomized mac'
+        try:
+            vendor = MacLookup().lookup(mac)
+        except:
+            pass
+        html+= mac + ' (' + vendor +')<br>'  
+    gmap.marker(loc['lat'],loc['lon'],color=colors[i%len(colors)], info_window=html, label=loc['ssid'][0], title=loc['ssid'])
+
+# Draw the map to an HTML file:
+gmap.draw('map.html')
